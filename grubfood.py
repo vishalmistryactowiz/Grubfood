@@ -1,16 +1,32 @@
-import json
-import mysql.connector
 from datetime import datetime
+import gzip
+import time
+import json
+import os
+import mysql.connector
+start = time.time()
+base_path = r"C:\Users\vishal.mistry\Downloads\grab_food_pages\grab_food_pages"
+connection = mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="actowiz",
+        database="grub"
+    )
+# Load File Block
+def load_json(input_src_folder):
+    json_data = []
 
-def input_data(raw_data):
-    with open(raw_data, "r", encoding="utf-8") as f:
-        return json.load(f)
+    for name in os.listdir(input_src_folder):
+        if name.endswith(".gz"):   # only gz files
+            full_path = os.path.join(input_src_folder, name)
 
+            with gzip.open(full_path, "rt", encoding="utf-8") as f:
+                json_data.append(json.load(f))
+    return json_data
+# extract Data Block
 def process(data):
     e_dict = {}
-
-    base = data.get("merchant", {})
-
+    base = data.get("merchant") or {}
     # Basic Info
     e_dict["res_ID"] = base.get("ID")
     e_dict["res_name"] = base.get("name")
@@ -22,7 +38,6 @@ def process(data):
     e_dict["Rating"] = base.get("rating")
     e_dict["DeliverBy"] =base.get("deliverBy")
     e_dict["Radius"] = base.get("radius")
-
     # Opening Hours
     time_data = base.get("openingHours", {})
     e_dict["Timing"] = {
@@ -35,7 +50,6 @@ def process(data):
         "Friday": time_data.get("fri"),
         "Saturday": time_data.get("sat")
     }
-
     # MENU SECTION
     menu = base.get("menu", {})
     categories = menu.get("categories", [])
@@ -52,43 +66,32 @@ def process(data):
                 "category_id" : cate_id,
                 "items": []
             }
-
             if isinstance(items, list):
                 for item in items:
+                    price_data = item.get("priceV2") or {}
                     item_data = {
                         "items_id": item.get("ID"),
                         "items_Name": item.get("name"),
-                        "price": item.get("priceV2").get('amountDisplay'),
+                        "price": price_data.get("amountDisplay"),
                         'available' : item.get("available"),
                         "image_url": item.get("imgHref"),
                         "description" :item.get("description")
                     }
                     category_data["items"].append(item_data)
-
             all_categories.append(category_data)
-
     e_dict["Categories"] = all_categories
 
     return e_dict
-
-
+# write Data in json file Block
 def write_jsondata(all_data):
     current_date = datetime.now().strftime("%d-%m-%Y")
     filename = f"GRUBFOOD_{current_date}.json"
 
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(all_data, f, indent=4, ensure_ascii=False)
-
-def get_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="actowiz",
-        database="grub"
-    )
+# Create Table Block
 def create_three_tables(connection):
     cursor = connection.cursor()
-
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS restaurants (
         restaurant_id VARCHAR(50) PRIMARY KEY,
@@ -105,19 +108,18 @@ def create_three_tables(connection):
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
-
     cursor.execute("""
-   CREATE TABLE IF NOT EXISTS categories (
-    category_id VARCHAR(50) PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS categories (
+    category_id VARCHAR(50),
     restaurant_id VARCHAR(50),
     category_name VARCHAR(100),
+    PRIMARY KEY (restaurant_id, category_id),
     FOREIGN KEY (restaurant_id) REFERENCES restaurants(restaurant_id)
         ON DELETE CASCADE
 );""")
-
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS menu_items (
-    item_id VARCHAR(50) PRIMARY KEY,
+    item_id VARCHAR(50),
     restaurant_id VARCHAR(50),
     category_id VARCHAR(50),
     item_name VARCHAR(255),
@@ -126,17 +128,18 @@ def create_three_tables(connection):
     available BOOLEAN,
     image_url TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (restaurant_id, item_id),
     FOREIGN KEY (restaurant_id) REFERENCES restaurants(restaurant_id)
         ON DELETE CASCADE,
-    FOREIGN KEY (category_id) REFERENCES categories(category_id)
+    FOREIGN KEY (restaurant_id, category_id)
+        REFERENCES categories(restaurant_id, category_id)
         ON DELETE CASCADE
 );""")
     connection.commit()
     cursor.close()
-
+# Insert Query Block
 def insert_restaurant_data(connection, data):
     cursor = connection.cursor()
-
     cursor.execute("""
     INSERT IGNORE INTO restaurants
     (restaurant_id, restaurant_name, cuisine, logo, timezone, eta, distance, rating, deliver_by, radius, displayed_hours)
@@ -189,16 +192,18 @@ def insert_restaurant_data(connection, data):
     connection.commit()
     cursor.close()
 
-base_path = r"C:\Users\vishal.mistry\Desktop\Mistry Vishal\Grubfood\grabfood.json"
+s =load_json(base_path)# function call
 
-file = input_data(base_path)
-result = process(file)
+processed_data = []
+for item in s:
+    processed_data.append(process(item))
 
-connection = get_connection()
-
-create_three_tables(connection)
-insert_restaurant_data(connection, result)
+write_jsondata(processed_data)# function call
+create_three_tables(connection) # function call
+for restaurant in processed_data:
+    insert_restaurant_data(connection, restaurant) # function call
 
 connection.close()
-
-
+end = time.time()
+print(end-start)
+                 
