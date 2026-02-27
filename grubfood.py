@@ -4,6 +4,7 @@ import time
 import json
 import os
 import mysql.connector
+from pydantic import BaseModel
 start = time.time()
 base_path = r"C:\Users\vishal.mistry\Downloads\grab_food_pages\grab_food_pages"
 connection = mysql.connector.connect(
@@ -12,6 +13,35 @@ connection = mysql.connector.connect(
         password="actowiz",
         database="grub"
     )
+class Item(BaseModel):
+    items_id: str 
+    items_Name: str | None = None
+    price: str | None = None
+    available: bool | None = None
+    image_url: str | None = None
+    description: str | None = None
+
+
+class Category(BaseModel):
+    category_name: str | None = None
+    category_id: str | None = None
+    items: list[Item]
+
+
+class grub(BaseModel):
+    res_ID: str
+    res_name: str | None = None
+    cuisine: str | None = None
+    logo: str | None = None
+    timeZone: str | None = None
+    ETA: int | None = None
+    Distance: float | None = None
+    Rating: float | None = None
+    DeliverBy: str | None = None
+    Radius: int | None = None
+    Timing: dict[str, str | None]
+    Categories: list[Category]
+
 # Load File Block
 def load_json(input_src_folder):
     json_data = []
@@ -27,6 +57,8 @@ def load_json(input_src_folder):
 def process(data):
     e_dict = {}
     base = data.get("merchant") or {}
+    if not base.get("ID"):
+        return None
     # Basic Info
     e_dict["res_ID"] = base.get("ID")
     e_dict["res_name"] = base.get("name")
@@ -81,14 +113,17 @@ def process(data):
             all_categories.append(category_data)
     e_dict["Categories"] = all_categories
 
-    return e_dict
+    return grub.model_validate(e_dict)
 # write Data in json file Block
 def write_jsondata(all_data):
     current_date = datetime.now().strftime("%d-%m-%Y")
     filename = f"GRUBFOOD_{current_date}.json"
 
+    # Convert Pydantic models to dict
+    json_ready_data = [item.model_dump() for item in all_data]
+
     with open(filename, "w", encoding="utf-8") as f:
-        json.dump(all_data, f, indent=4, ensure_ascii=False)
+        json.dump(json_ready_data, f, indent=4, ensure_ascii=False)
 # Create Table Block
 def create_three_tables(connection):
     cursor = connection.cursor()
@@ -140,53 +175,64 @@ def create_three_tables(connection):
 # Insert Query Block
 def insert_restaurant_data(connection, data):
     cursor = connection.cursor()
+
     cursor.execute("""
     INSERT IGNORE INTO restaurants
     (restaurant_id, restaurant_name, cuisine, logo, timezone, eta, distance, rating, deliver_by, radius, displayed_hours)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
-        data["res_ID"],
-        data["res_name"],
-        data["cuisine"],
-        data["logo"],
-        data["timeZone"],
-        data["ETA"],
-        data["Distance"],
-        data["Rating"],
-        data["DeliverBy"],
-        data["Radius"],
-        data["Timing"]["displayedHours"]
+        data.res_ID,
+        data.res_name,
+        data.cuisine,
+        data.logo,
+        data.timeZone,
+        data.ETA,
+        data.Distance,
+        data.Rating,
+        data.DeliverBy,
+        data.Radius,
+        data.Timing.get("displayedHours")
     ))
 
     inserted_items = set()
 
-    for category in data["Categories"]:
-        if not category["category_id"]:
+    for category in data.Categories:
+        if not category.category_id:
             continue
+
         cursor.execute("""
-        INSERT INTO categories (restaurant_id, category_id ,category_name)
-        VALUES (%s, %s,%s)
-        """, (data["res_ID"], category["category_id"],category["category_name"]))
+        INSERT IGNORE INTO categories (restaurant_id, category_id, category_name)
+        VALUES (%s, %s, %s)
+        """, (
+            data.res_ID,
+            category.category_id,
+            category.category_name
+        ))
 
-
-        for item in category["items"]:
-            if item["items_id"] in inserted_items:
+        for item in category.items:
+            if item.items_id in inserted_items:
                 continue
-            inserted_items.add(item["items_id"])
+
+            inserted_items.add(item.items_id)
+
+            # Safe price conversion
+            price = 0
+            if item.price:
+                price = float(''.join(c for c in item.price if c.isdigit() or c == '.'))
 
             cursor.execute("""
             INSERT IGNORE INTO menu_items
             (item_id, restaurant_id, category_id, item_name, description, price, available, image_url)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (
-                item["items_id"],
-                data["res_ID"],
-                category["category_id"],
-                item["items_Name"],
-                item["description"],
-                float(item["price"]) if item["price"] else 0,
-                item["available"],
-                item["image_url"]
+                item.items_id,
+                data.res_ID,
+                category.category_id,
+                item.items_Name,
+                item.description,
+                price,
+                item.available,
+                item.image_url
             ))
 
     connection.commit()
@@ -196,7 +242,9 @@ s =load_json(base_path)# function call
 
 processed_data = []
 for item in s:
-    processed_data.append(process(item))
+    result = process(item)
+    if result is not None:
+        processed_data.append(result)
 
 write_jsondata(processed_data)# function call
 create_three_tables(connection) # function call
