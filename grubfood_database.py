@@ -1,99 +1,133 @@
-# Create Table Block
-def create_two_tables(connection):
-    cursor = connection.cursor()
+import json
+import mysql.connector
 
-    # Restaurants table
+
+def get_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="actowiz",
+        database="grubfood"
+    )
+
+
+def batch_insert(data, batch_size=1000):
+
+    if not data:
+        print("No data to insert")
+        return
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # RESTAURANTS TABLE
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS restaurants (
-            restaurant_id VARCHAR(50) PRIMARY KEY,
-            restaurant_name VARCHAR(255),
-            cuisine VARCHAR(100),
-            logo TEXT,
-            timezone VARCHAR(100),
-            eta INT,
-            distance DECIMAL(6,3),
-            rating DECIMAL(2,1),
-            deliver_by VARCHAR(50),
-            radius INT,
-            displayed_hours VARCHAR(50)
-        );
+    CREATE TABLE IF NOT EXISTS restaurants (
+        restaurant_id VARCHAR(50) PRIMARY KEY,
+        restaurant_name VARCHAR(255),
+        cuisine VARCHAR(255),
+        timezone VARCHAR(100),
+        eta VARCHAR(100),
+        rating FLOAT,
+        vote INT,
+        deliver_by VARCHAR(100),
+        distance_range VARCHAR(100),
+        Currency VARCHAR(20),
+        timing JSON,
+        tips TEXT
+    )
     """)
 
+    # MENU TABLE 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS menu_items (
-            item_id VARCHAR(50) UNIQUE,
-            restaurant_id VARCHAR(50),
-            category_id VARCHAR(50),
-            category_name VARCHAR(100),
-            item_name VARCHAR(255),
-            description TEXT,
-            price DECIMAL(8,2),
-            available BOOLEAN,
-            image_url TEXT
-        );
+    CREATE TABLE IF NOT EXISTS menu_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        restaurant_id VARCHAR(50),
+        category_name VARCHAR(255),
+        category_id VARCHAR(100),
+        item_id VARCHAR(100) UNIQUE,
+        item_name VARCHAR(255),
+        price FLOAT,
+        available TINYINT,
+        IMG TEXT,
+        description TEXT
+    )
     """)
+    conn.commit()
 
-    connection.commit()
-    cursor.close()
+    restaurant_query = """
+    INSERT INTO restaurants
+    (restaurant_id, restaurant_name, cuisine, timezone, eta, rating, vote, deliver_by, distance_range, Currency, timing, tips)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    ON DUPLICATE KEY UPDATE
+        restaurant_name=VALUES(restaurant_name),
+        rating=VALUES(rating)
+    """
 
+    menu_query = """
+    INSERT IGNORE INTO menu_items
+    (restaurant_id, category_name, category_id, item_id, item_name, price, available, IMG, description)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    """
 
-# Insert Query Block
-def insert_restaurant_data(connection, data):
-    cursor = connection.cursor()
+    total_restaurants = 0
+    total_menu_items = 0
 
-    # Insert restaurant
-    cursor.execute("""
-        INSERT IGNORE INTO restaurants
-        (restaurant_id, restaurant_name, cuisine, logo, timezone,
-         eta, distance, rating, deliver_by, radius, displayed_hours)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (
-        data.res_ID,
-        data.res_name,
-        data.cuisine,
-        data.logo,
-        data.timeZone,
-        data.ETA,
-        data.Distance,
-        data.Rating,
-        data.DeliverBy,
-        data.Radius,
-        data.Timing.get("displayedHours")
-    ))
+    for i in range(0, len(data), batch_size):
 
-    inserted_items = set()
+        batch = data[i:i+batch_size]
 
-    for category in data.Categories:
-        if not category.category_id:
-            continue
+        restaurant_values = []
+        menu_values = []
 
-        for item in category.items:
-            if item.items_id in inserted_items:
-                continue
+        for item in batch:
 
-            inserted_items.add(item.items_id)
-
-            # Safe price conversion
-            price = 0
-            if item.price:
-                price = float(''.join(c for c in item.price if c.isdigit() or c == '.'))
-
-            cursor.execute("""
-                INSERT IGNORE INTO menu_items
-                (item_id, restaurant_id, category_id, category_name,
-                 item_name, description, price, available, image_url)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                item.items_id,
-                data.res_ID,
-                category.category_id,
-                category.category_name,
-                item.items_Name,
-                item.description,
-                price,
-                item.available,
-                item.image_url
+            restaurant_values.append((
+                item.get("restaurant_id"),
+                item.get("restaurant_name"),
+                item.get("cuisine"),
+                item.get("timezone"),
+                item.get("ETA"),
+                item.get("Rating"),
+                item.get("vote"),
+                item.get("deliverBy"),
+                item.get("distance_range"),
+                item.get("Currency"),
+                json.dumps(item.get("timing")) if item.get("timing") else None,
+                item.get("tips")
             ))
 
-    connection.commit()
+            for category in item.get("Menu", []):
+                for menu_item in category.get("Items", []):
+                    menu_values.append((
+                        item.get("restaurant_id"),
+                        category.get("category_name"),
+                        category.get("category_id"),
+                        menu_item.get("item_id"),
+                        menu_item.get("item_name"),
+                        menu_item.get("price"),
+                        menu_item.get("available"),
+                        menu_item.get("IMG"),
+                        menu_item.get("description")
+                    ))
+
+        # Insert Restaurants
+        cursor.executemany(restaurant_query, restaurant_values)
+        batch_restaurants = cursor.rowcount
+        total_restaurants += batch_restaurants
+
+        # Insert Menu
+        batch_menu = 0
+        if menu_values:
+            cursor.executemany(menu_query, menu_values)
+            batch_menu = cursor.rowcount
+            total_menu_items += batch_menu
+
+        conn.commit()
+
+
+    print("Total Restaurants Batch:", total_restaurants)
+    print("Total Menu Items Batch:", total_menu_items)
+
     cursor.close()
+    conn.close()

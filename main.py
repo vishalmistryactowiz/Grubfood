@@ -1,33 +1,12 @@
-import time
-import mysql.connector
-
 from grubfood_data_abstract import load_json, process
-from grubfood_database import create_two_tables, insert_restaurant_data
-
-start = time.time()
+from grubfood_model import restaurant
+from grubfood_database import batch_insert
 
 base_path = r"C:\Users\vishal.mistry\Downloads\grab_food_pages\grab_food_pages"
 
-connection = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="actowiz",
-    database="grubfood"
-)
+raw_data = load_json(base_path)
+parsed = process(raw_data)
 
-json_data_loaded = load_json(base_path)
+validated = [restaurant(**item).model_dump() for item in parsed]
 
-processed_data = []
-for data in json_data_loaded:
-    result = process(data)
-    if result:
-        processed_data.append(result)
-
-create_two_tables(connection)
-
-for restaurant in processed_data:
-    insert_restaurant_data(connection, restaurant)
-
-end = time.time()
-print(end-start)
-connection.close()
+batch_insert(validated, batch_size=500)

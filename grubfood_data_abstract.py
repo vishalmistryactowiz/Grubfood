@@ -1,101 +1,92 @@
-import os
-import gzip
 import json
-from grubfood_model import restaurants
+import gzip
+import os
 
+def load_json(data):
+    all_data = []
+    for file_name in os.listdir(data):
+        if file_name.endswith('.gz'):
+            base = os.path.join(data, file_name)
+            with gzip.open(base, 'rt', encoding='utf-8') as file:
+                all_data.append(json.load(file))
+    return all_data
 
-def load_json(input_src_folder):
-    json_data = []
+def process(extract_data):
+    grabfood_json_data = []
+    for data in extract_data:
 
-    for name in os.listdir(input_src_folder):
-        if name.endswith(".gz"):
-            full_path = os.path.join(input_src_folder, name)
-            with gzip.open(full_path, "rt", encoding="utf-8") as f:
-                json_data.append(json.load(f))
-    return json_data
+        merchant = data.get("merchant") or data.get("data", {}).get("merchant") or {}
 
+        restaurant_id = (
+            merchant.get("ID")
+            or merchant.get("id")
+            or data.get("restaurant_id")
+            or data.get("id")
+        )
 
-def process(data):
-    grubfood_dict = {}
-    base = data.get("merchant") or data.get("data", {}).get("merchant") or {}
+        if not restaurant_id:
+            continue
+        
+        restaurant_information = {}
+        restaurant_information['restaurant_id'] = str(restaurant_id)
+        restaurant_information["restaurant_name"] = merchant.get("name")
+        restaurant_information["cuisine"] = merchant.get("cuisine")
+        restaurant_information["timezone"] = merchant.get("timeZone")
+        restaurant_information["ETA"] = merchant.get("ETA")
+        restaurant_information["Rating"] = merchant.get("rating")
+        restaurant_information["vote"] = merchant.get("voteCount")
+        restaurant_information["deliverBy"] = merchant.get("deliverBy")
+        restaurant_information["distance_range"] = merchant.get("radius")
+        
+        estimated_fee = merchant.get("estimatedDeliveryFee", {})
+        currency = estimated_fee.get("currency", {})
+        restaurant_information["Currency"] = currency.get("symbol")
 
-    restaurant_id = (
-        base.get("ID")
-        or base.get("id")
-        or data.get("restaurant_id")
-        or data.get("id")
-    )
+        restaurant_information["timing"] = merchant.get("openingHours")
+        restaurant_information["tips"] = merchant.get("sofConfiguration", {}).get("tips")
+        
+        #Menu information 
+        categories = merchant.get("menu", {}).get("categories", [])
+        restaurant_information["Menu"] = []
 
-    if not restaurant_id:
-        return None
-
-    grubfood_dict["res_ID"] = str(restaurant_id)
-    grubfood_dict["res_name"] = base.get("name")
-    grubfood_dict["cuisine"] = base.get("cuisine")
-    grubfood_dict["logo"] = base.get("photoHref")
-    grubfood_dict["timeZone"] = base.get("timeZone")
-    grubfood_dict["ETA"] = base.get("ETA")
-    grubfood_dict["Distance"] = base.get("distanceInKm")
-    grubfood_dict["Rating"] = base.get("rating")
-    grubfood_dict["DeliverBy"] = base.get("deliverBy")
-    grubfood_dict["Radius"] = base.get("radius")
-
-    time_data = base.get("openingHours", {})
-    grubfood_dict["Timing"] = {
-        "displayedHours": time_data.get("displayedHours"),
-        "SunDay": time_data.get("sun"),
-        "Monday": time_data.get("mon"),
-        "Tuesday": time_data.get("tue"),
-        "Wednesday": time_data.get("wed"),
-        "Thursday": time_data.get("thu"),
-        "Friday": time_data.get("fri"),
-        "Saturday": time_data.get("sat")
-    }
-
-    menu = base.get("menu", {})
-    categories = menu.get("categories", [])
-
-    all_categories = []
-
-    if isinstance(categories, list):
         for category in categories:
-
-            # 🔥 FIX 3: Flexible category ID
             category_id = category.get("ID") or category.get("id")
 
-            if not category_id:
-                continue
-
-            category_data = {
+            category_dict = {
                 "category_name": category.get("name"),
-                "category_id": str(category_id),
-                "items": []
+                "category_id": str(category_id) if category_id else None,
+                "Items": []
             }
 
-            items = category.get("items", [])
-            if isinstance(items, list):
-                for item in items:
+            for item in category.get("items", []):
+                item_id = item.get("ID") or item.get("id")
+                if not item_id:
+                    continue
 
-                    # 🔥 FIX 4: Flexible item ID
-                    item_id = item.get("ID") or item.get("id")
-                    if not item_id:
-                        continue
+                price_data = item.get("priceV2", {})
+                amount = price_data.get("amountDisplay")
 
-                    price_data = item.get("priceV2") or {}
+                try:
+                    price_value = float(str(amount).replace(",", "")) if amount else None
+                except:
+                    price_value = None
 
-                    item_data = {
-                        "items_id": str(item_id),
-                        "items_Name": item.get("name"),
-                        "price": price_data.get("amountDisplay"),
-                        "available": item.get("available"),
-                        "image_url": item.get("imgHref"),
-                        "description": item.get("description")
-                    }
+                item_dict = {
+                    "item_id": str(item_id),
+                    "item_name": item.get("name"),
+                    "price": price_value,
+                    "available": 1 if item.get("available") else 0,
+                    "IMG": item.get("imgHref"),
+                    "description": item.get("description")
+                }
 
-                    category_data["items"].append(item_data)
+                category_dict["Items"].append(item_dict)
 
-            all_categories.append(category_data)
+            restaurant_information["Menu"].append(category_dict)
 
-    grubfood_dict["Categories"] = all_categories
-
-    return restaurants.model_validate(grubfood_dict)
+        grabfood_json_data.append(restaurant_information)
+        
+    return grabfood_json_data
+        
+        
+    
