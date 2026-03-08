@@ -7,9 +7,8 @@ def get_connection():
         host="localhost",
         user="root",
         password="actowiz",
-        database="grubfood"
+        database="grabfood"
     )
-
 
 def batch_insert(data, batch_size=1000):
 
@@ -32,7 +31,6 @@ def batch_insert(data, batch_size=1000):
         vote INT,
         deliver_by VARCHAR(100),
         distance_range VARCHAR(100),
-        Currency VARCHAR(20),
         timing JSON,
         tips TEXT
     )
@@ -57,8 +55,8 @@ def batch_insert(data, batch_size=1000):
 
     restaurant_query = """
     INSERT INTO restaurants
-    (restaurant_id, restaurant_name, cuisine, timezone, eta, rating, vote, deliver_by, distance_range, Currency, timing, tips)
-    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    (restaurant_id, restaurant_name, cuisine, timezone, eta, rating, vote, deliver_by, distance_range, timing, tips)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     ON DUPLICATE KEY UPDATE
         restaurant_name=VALUES(restaurant_name),
         rating=VALUES(rating)
@@ -74,14 +72,10 @@ def batch_insert(data, batch_size=1000):
     total_menu_items = 0
 
     for i in range(0, len(data), batch_size):
-
         batch = data[i:i+batch_size]
-
         restaurant_values = []
         menu_values = []
-
         for item in batch:
-
             restaurant_values.append((
                 item.get("restaurant_id"),
                 item.get("restaurant_name"),
@@ -92,7 +86,6 @@ def batch_insert(data, batch_size=1000):
                 item.get("vote"),
                 item.get("deliverBy"),
                 item.get("distance_range"),
-                item.get("Currency"),
                 json.dumps(item.get("timing")) if item.get("timing") else None,
                 item.get("tips")
             ))
@@ -124,7 +117,6 @@ def batch_insert(data, batch_size=1000):
             total_menu_items += batch_menu
 
         conn.commit()
-
 
     print("Total Restaurants Batch:", total_restaurants)
     print("Total Menu Items Batch:", total_menu_items)

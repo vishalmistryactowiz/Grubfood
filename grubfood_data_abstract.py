@@ -2,7 +2,7 @@ import json
 import gzip
 import os
 
-def load_json(data):
+def load_json_data(data):
     all_data = []
     for file_name in os.listdir(data):
         if file_name.endswith('.gz'):
@@ -14,40 +14,34 @@ def load_json(data):
 def process(extract_data):
     grabfood_json_data = []
     for data in extract_data:
-
-        merchant = data.get("merchant") or data.get("data", {}).get("merchant") or {}
-
-        restaurant_id = (
-            merchant.get("ID")
-            or merchant.get("id")
-            or data.get("restaurant_id")
-            or data.get("id")
+        merchant = data.get("merchant") or data.get("data", {}).get("merchant") or {} 
+        result = {}
+        result['restaurant_id'] = (
+            merchant.get("ID") or
+            merchant.get("id") or
+            merchant.get("merchantID") or
+            merchant.get("merchant_id") or
+            merchant.get("restaurantID") or
+            merchant.get("uuid")
         )
 
-        if not restaurant_id:
+        if not result['restaurant_id']:
             continue
-        
-        restaurant_information = {}
-        restaurant_information['restaurant_id'] = str(restaurant_id)
-        restaurant_information["restaurant_name"] = merchant.get("name")
-        restaurant_information["cuisine"] = merchant.get("cuisine")
-        restaurant_information["timezone"] = merchant.get("timeZone")
-        restaurant_information["ETA"] = merchant.get("ETA")
-        restaurant_information["Rating"] = merchant.get("rating")
-        restaurant_information["vote"] = merchant.get("voteCount")
-        restaurant_information["deliverBy"] = merchant.get("deliverBy")
-        restaurant_information["distance_range"] = merchant.get("radius")
-        
-        estimated_fee = merchant.get("estimatedDeliveryFee", {})
-        currency = estimated_fee.get("currency", {})
-        restaurant_information["Currency"] = currency.get("symbol")
+        result["restaurant_name"] = merchant.get("name")
+        result["cuisine"] = merchant.get("cuisine")
+        result["timezone"] = merchant.get("timeZone")
+        result["ETA"] = merchant.get("ETA")
+        result["Rating"] = merchant.get("rating")
+        result["vote"] = merchant.get("voteCount")
+        result["deliverBy"] = merchant.get("deliverBy")
+        result["distance_range"] = merchant.get("radius")
 
-        restaurant_information["timing"] = merchant.get("openingHours")
-        restaurant_information["tips"] = merchant.get("sofConfiguration", {}).get("tips")
+        result["timing"] = merchant.get("openingHours")
+        result["tips"] = merchant.get("sofConfiguration", {}).get("tips")
         
-        #Menu information 
+        # Menu information 
         categories = merchant.get("menu", {}).get("categories", [])
-        restaurant_information["Menu"] = []
+        result["Menu"] = []
 
         for category in categories:
             category_id = category.get("ID") or category.get("id")
@@ -82,11 +76,8 @@ def process(extract_data):
 
                 category_dict["Items"].append(item_dict)
 
-            restaurant_information["Menu"].append(category_dict)
+            result["Menu"].append(category_dict)
 
-        grabfood_json_data.append(restaurant_information)
+        grabfood_json_data.append(result)
         
     return grabfood_json_data
-        
-        
-    

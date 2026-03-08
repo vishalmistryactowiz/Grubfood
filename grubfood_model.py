@@ -25,7 +25,6 @@ class restaurant(BaseModel):
     vote: int | None
     deliverBy: str | None
     distance_range: int | None
-    Currency: str | None
     timing: Dict[str, Any] | None
     tips: str | None
     Menu: List[category] | None
